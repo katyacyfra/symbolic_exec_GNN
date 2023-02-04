@@ -1,8 +1,12 @@
 import torch
+from torch.autograd import Variable
+from torch_geometric.nn import to_hetero, to_hetero_with_bases
+
 import data_loader
-from models import GCN
+from models import GCN, GCN_SimpleMultipleOutput, GNN_MultipleOutput, GAT, GNN_Het
 from random import shuffle
 from torch_geometric.loader import DataLoader
+import torch.nn.functional as F
 
 
 def main():
@@ -53,5 +57,5 @@ def tst(model, loader):
          correct += int((pred == data.y).sum())
      return correct / len(loader.dataset) 
 
-if __name__ == '__main__':
-    main()
+
+
