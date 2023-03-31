@@ -3,7 +3,7 @@ import json
 import os.path
 from torch_geometric.data import Data, HeteroData
 from os import walk
-from typing import Dict
+from typing import Dict, Tuple
 import torch
 import numpy as np
 from operator import itemgetter
@@ -13,6 +13,8 @@ from game import GameState
 #NUM_NODE_FEATURES = 49
 NUM_NODE_FEATURES = 6
 EXPECTED_FILENAME = "expectedResults.txt"
+GAMESUFFIX = "_gameState"
+STATESUFFIX = "_statesInfo"
 
 
 class DataLoader:  # TODO: inheritance and more ways to load (different predictions)
@@ -90,10 +92,13 @@ class DataLoader:  # TODO: inheritance and more ways to load (different predicti
                     y=expected)
         return data
 
+
+
+
 class ServerDataloaderHetero(DataLoader):
     def __init__(self, data_dir):
         self.data_dir = data_dir
-        self.graph_types_and_expected: Dict[str, Dict[int, np.array]] = {}  # Dict[example name, Dict[graph №, expected]]
+        self.graph_types_and_expected: Dict[str, Dict[int, np.array]] = {} # Dict[example name, Dict[graph №, expected]]
         self.graph_types_and_data = {}
         self.dataset = []
         self.process_directory(data_dir)
@@ -105,9 +110,10 @@ class ServerDataloaderHetero(DataLoader):
                 with open(os.path.join(self.data_dir, k, file)) as f:
                     print(os.path.join(self.data_dir, k, file))
                     data = json.load(f)
-                    graph = self.convert_input_to_tensor(GameState.from_dict(data))
+                    graph, state_map = self.convert_input_to_tensor(GameState.from_dict(data))
                     #add_expected values
-                    graph.y = self.graph_types_and_expected[k][int(file)]
+                    expected = self.graph_types_and_expected[k][int(file)][0]
+                    graph.y = state_map[expected]
                 self.dataset.append(graph)
 
     def get_expected_values(self, fldr_path: str) -> Dict[int, np.array]:
@@ -124,9 +130,9 @@ class ServerDataloaderHetero(DataLoader):
 
 
     @staticmethod
-    def convert_input_to_tensor(input: GameState):
+    def convert_input_to_tensor(input: GameState) -> Tuple[HeteroData, Dict[int, int]]:
         """
-        Converts game env to tensors
+        Converts game env to tensors and state_map
         input later can be changed to <GameState, History, ...>
         """
         mp = input.Map
@@ -143,56 +149,69 @@ class ServerDataloaderHetero(DataLoader):
         edges_attr_v_s = []
         edges_attr_v_v = []
 
+        state_map: Dict[int, int] = {}  # Maps real state id to its index
+        vertex_map: Dict[int, int] = {}  # Maps real vertex id to its index
+        vertex_index = 0
+        state_index = 0
         for m in mp:
             # process vertices
             vertex_from, vertex_to = m.VertexFrom.__dict__, m.VertexTo.__dict__
             for v in [vertex_from, vertex_to]:
-                vertex_id = v['Id']
+                vertex_id = int(v['Id'])
                 if vertex_id not in nodes_vertex_set:
                     nodes_vertex_set.add(vertex_id)
-                    nodes_vertex.append(np.array([vertex_id, int(v['InCoverageZone']),
+                    vertex_map[vertex_id] = vertex_index
+                    vertex_index = vertex_index + 1
+                    nodes_vertex.append(np.array([int(v['InCoverageZone']),
                                         v['BasicBlockSize'], int(v['CoveredByTest']),
                                         int(v['VisitedByState']), int(v['TouchedByState'])
                                         ]))
             # proccess edge
-            edges_index_v_v.append(np.array([vertex_from['Id'], vertex_to['Id']]))
+            edges_index_v_v.append(np.array([vertex_map[int(vertex_from['Id'])],
+                                                       vertex_map[int(vertex_to['Id'])]]))
             edges_attr_v_v.append(np.array([m.Label.Token]))
         # dealing with states
-        nodes_number = 0 #unique id for every node!
+        #nodes_number = 0 #unique id for every node!
+        states_info = {}
         for m in mp:
             vertex_from, vertex_to = m.VertexFrom.__dict__, m.VertexTo.__dict__
             for v in [vertex_from, vertex_to]:
+                vertex_id = v['Id']
                 states = v['States']
                 if states: #proccess states independently
                     for s in states:
                         dct = s.__dict__
-                        sid = dct['Id'] + nodes_number
+                        sid = int(dct['Id'])
+                        states_info[sid] = dct
                         if sid not in nodes_state_set:
                             nodes_state_set.add(sid)
-                            nodes_state.append(np.array([sid, dct['Position'],
+                            state_map[sid] = state_index
+                            state_index = state_index + 1
+                            nodes_state.append(np.array([dct['Position'],
                                                              dct['PredictedUsefulness'], dct['PathConditionSize'],
                                                              dct['VisitedAgainVertices'], dct['VisitedNotCoveredVerticesInZone'],
                                                              dct['VisitedNotCoveredVerticesOutOfZone']
                                                              ]))
                             # fix state position
-                            edges_index_s_v.append(np.array([sid, vertex_id]))
+                            edges_index_s_v.append(np.array([state_map[sid], vertex_map[vertex_id]]))
                             edges_attr_s_v.append(np.array(1))
-                            edges_index_v_s.append(np.array([vertex_id, sid]))
+                            edges_index_v_s.append(np.array([vertex_map[vertex_id], state_map[sid]]))
                             edges_attr_v_s.append(np.array(1))
-                            #history edges
+                            # children edges
                             history = dct['History']
                             if history:
                                 for h in history:
-                                    edges_index_s_v.append(np.array([sid, h]))
+                                    edges_index_s_v.append(np.array([state_map[sid], vertex_map[int(h)]]))
                                     edges_attr_s_v.append(np.array(0))
-                            #children edges
-                            children = dct['Children']
-                            if children:
-                                for c in children:
-                                    edges_index_s_s.append(np.array([sid, c + nodes_number]))
+        #children edges --- add after all states
+        for (k, v) in states_info.items():
+            children = v['Children']
+            if children:
+                for c in children:
+                    edges_index_s_s.append(np.array([state_map[k], state_map[int(c)]]))
 
-        nodes_vertex = sorted(nodes_vertex, key=itemgetter(0))
-        nodes_state = sorted(nodes_state, key=itemgetter(0))
+        #nodes_vertex =  sorted(nodes_vertex, key=itemgetter(0))
+        #nodes_state = sorted(nodes_state, key=itemgetter(0))
         data['game_vertex'].x = torch.tensor(np.array(nodes_vertex), dtype=torch.float)
         data['state_vertex'].x = torch.tensor(np.array(nodes_state), dtype=torch.float)
         data['game_vertex', 'to', 'game_vertex'].edge_index = torch.tensor(np.array(edges_index_v_v),
@@ -207,15 +226,185 @@ class ServerDataloaderHetero(DataLoader):
             #print(data['state', 'parent_of', 'state'].edge_index)
         data['game_vertex', 'to', 'game_vertex'].edge_attr = torch.tensor(np.array(edges_attr_v_v), dtype=torch.long)
         data['state_vertex', 'to', 'game_vertex'].edge_attr = torch.tensor(np.array(edges_attr_s_v), dtype=torch.long)
+
+        #data.state_map = state_map
+        return data, state_map
+
+class ServerDataloaderHeteroVector():
+    def __init__(self, data_dir):
+        self.data_dir = data_dir
+        self.graph_types_and_data = {}
+        self.dataset = []
+        self.process_directory(data_dir)
+        self.__process_files()
+        
+    @staticmethod
+    def convert_input_to_tensor(input: GameState) -> Tuple[HeteroData, Dict[int, int]]:
+        """
+        Converts game env to tensors
+        """
+        mp = input.Map
+        data = HeteroData()
+        nodes_vertex_set = set()
+        nodes_state_set = set()
+        nodes_vertex = []
+        nodes_state = []
+        edges_index_v_v = []
+        edges_index_s_s = []
+        edges_index_s_v_in = []
+        edges_index_v_s_in = []
+        edges_index_s_v_history = []
+        edges_index_v_s_history = []
+        edges_attr_v_v = []
+
+        state_map: Dict[int, int] = {}  # Maps real state id to its index
+        vertex_map: Dict[int, int] = {}  # Maps real vertex id to its index
+        vertex_index = 0
+        state_index = 0
+
+        for m in mp:
+            # process vertices
+            vertex_from, vertex_to = m.VertexFrom.__dict__, m.VertexTo.__dict__
+            for v in [vertex_from, vertex_to]:
+                vertex_id = int(v['Id'])
+                if vertex_id not in nodes_vertex_set:
+                    nodes_vertex_set.add(vertex_id)
+                    vertex_map[vertex_id] = vertex_index
+                    vertex_index = vertex_index + 1
+                    nodes_vertex.append(np.array([int(v['InCoverageZone']),
+                                                  v['BasicBlockSize'], int(v['CoveredByTest']),
+                                                  int(v['VisitedByState']), int(v['TouchedByState'])
+                                                  ]))
+            # proccess edge
+            edges_index_v_v.append(np.array([vertex_map[int(vertex_from['Id'])],
+                                             vertex_map[int(vertex_to['Id'])]]))
+            edges_attr_v_v.append(np.array([m.Label.Token, 0]))
+            # dealing with states
+            # nodes_number = 0 #unique id for every node!
+        states_info = {}
+        for m in mp:
+            vertex_from, vertex_to = m.VertexFrom.__dict__, m.VertexTo.__dict__
+            for v in [vertex_from, vertex_to]:
+                vertex_id = v['Id']
+                states = v['States']
+                if states:  # proccess states independently
+                    for s in states:
+                        dct = s.__dict__
+                        sid = int(dct['Id'])
+                        states_info[sid] = dct
+                        if sid not in nodes_state_set:
+                            nodes_state_set.add(sid)
+                            state_map[sid] = state_index
+                            state_index = state_index + 1
+                            nodes_state.append(np.array([dct['Position'],
+                                                         dct['PredictedUsefulness'], dct['PathConditionSize'],
+                                                         dct['VisitedAgainVertices'],
+                                                         dct['VisitedNotCoveredVerticesInZone'],
+                                                         dct['VisitedNotCoveredVerticesOutOfZone']
+                                                         ]))
+                            # fix state position
+                            edges_index_s_v_in.append(np.array([state_map[sid], vertex_map[vertex_id]]))
+                            #edges_attr_s_v.append(np.array([1, 0])) TODO: additional attributes for edges
+                            edges_index_v_s_in.append(np.array([vertex_map[vertex_id], state_map[sid]]))
+                            #edges_attr_v_s.append(np.array(1))
+                            # history edges
+                            history = dct['History']
+                            if history:
+                                for h in history:
+                                    if sid in state_map:
+                                        state_from = state_map[sid]
+                                    else:
+                                        print("Error in history processing: state is not found, graph is ignored")
+                                        return None, state_map
+                                    if h['GraphVertexId'] in vertex_map:
+                                        v_to = vertex_map[h['GraphVertexId']]
+                                    else:
+                                        print("Error in history processing: vertex is not found, graph is ignored")
+                                        return None, state_map
+                                    edges_index_s_v_history.append(np.array([state_from, v_to]))
+                                    edges_index_v_s_history.append(np.array([v_to, state_from]))
+                                    #lst = [0, h['NumOfVisits']] # TODO: additional attributes for edges
+                                    #edges_attr_s_v.append(np.array(lst))
+
+        # children edges --- add after all states
+        for (k, v) in states_info.items():
+            children = v['Children']
+            if children:
+                for c in children:
+                    edges_index_s_s.append(np.array([state_map[k], state_map[int(c)]]))
+
+        # nodes_vertex =  sorted(nodes_vertex, key=itemgetter(0))
+        # nodes_state = sorted(nodes_state, key=itemgetter(0))
+        data['game_vertex'].x = torch.tensor(np.array(nodes_vertex), dtype=torch.float)
+        data['state_vertex'].x = torch.tensor(np.array(nodes_state), dtype=torch.float)
+        data['game_vertex', 'to', 'game_vertex'].edge_index = torch.tensor(np.array(edges_index_v_v),
+                                                                           dtype=torch.long).t().contiguous()
+        data['state_vertex', 'in', 'game_vertex'].edge_index = torch.tensor(np.array(edges_index_s_v_in),
+                                                                            dtype=torch.long).t().contiguous()
+        data['game_vertex', 'in', 'state_vertex'].edge_index = torch.tensor(np.array(edges_index_v_s_in),
+                                                                            dtype=torch.long).t().contiguous()
+        data['state_vertex', 'history', 'game_vertex'].edge_index = torch.tensor(np.array(edges_index_s_v_history),
+                                                                            dtype=torch.long).t().contiguous()
+        data['game_vertex', 'history', 'state_vertex'].edge_index = torch.tensor(np.array(edges_index_v_s_history),
+                                                                            dtype=torch.long).t().contiguous()
+        if (edges_index_s_s):
+            data['state_vertex', 'parent_of', 'state_vertex'].edge_index = torch.tensor(np.array(edges_index_s_s),
+                                                                                        dtype=torch.long).t().contiguous()
+            # print(data['state', 'parent_of', 'state'].edge_index)
+        data['game_vertex', 'to', 'game_vertex'].edge_attr = torch.tensor(np.array(edges_attr_v_v), dtype=torch.long)
+        #data['state_vertex', 'to', 'game_vertex'].edge_attr = torch.tensor(np.array(edges_attr_s_v), dtype=torch.long)
         #print(data)
-        return data
+        # data.state_map = state_map
+        return data, state_map
+
+    @staticmethod
+    def get_expected_value(file_path: str, state_map: Dict[int, int]) -> torch.tensor:
+        """Get tensor for states"""
+        expected = {}
+        with open(file_path) as f:
+            data = json.load(f)
+            for d in data:
+                values = list(d.values())
+                expected[values[0]] = np.array(values[1:])
+        ordered = []
+        ordered_by_index = list(zip(*sorted(state_map.items(), key=lambda x:x[1])))[0]
+        for k in ordered_by_index:
+            ordered.append(expected[k])
+        return torch.tensor(np.array(ordered), dtype=torch.float)
+
+    def process_directory(self, data_dir):
+        example_dirs = next(walk(data_dir), (None, [], None))[1]
+        example_dirs.sort()
+        print(example_dirs)
+        for fldr in example_dirs:
+            fldr_path = os.path.join(data_dir, fldr)
+            graphs_to_convert = []
+            for f in os.listdir(fldr_path):
+                if GAMESUFFIX in f:
+                    graphs_to_convert.append(f)
+            graphs_to_convert.sort(key=lambda x: int(x.split('_')[0]))
+            self.graph_types_and_data[fldr] = graphs_to_convert
+
+    def __process_files(self):
+        for (k, v) in self.graph_types_and_data.items():
+            for file in v:
+                with open(os.path.join(self.data_dir, k, file)) as f:
+                    print(os.path.join(self.data_dir, k, file))
+                    data = json.load(f)
+                    graph, state_map = self.convert_input_to_tensor(GameState.from_dict(data))
+                    if graph is not None:
+                        #add_expected values
+                        expected = self.get_expected_value(os.path.join(self.data_dir, k,
+                                                                    file.split("_")[0] + STATESUFFIX),
+                                                       state_map)
+                        graph.y = expected
+                        self.dataset.append(graph)
 
 
 def parse_cmd_line_args():
     parser = argparse.ArgumentParser(prog='V# pytorch-geometric data conversion', description="Symbolic execution")
     parser.add_argument('--dataset', required=True, help="Dataset folder")
     parser.add_argument('--mode', help="heterogeneous or homogeneous graph model (het|hom)")
-
 
 def get_data():
     dl = DataLoader("../../GNN_V#/")
@@ -224,3 +413,11 @@ def get_data():
 def get_data_hetero():
     dl = ServerDataloaderHetero("../../GNN_V#/Serialized_test")
     return dl.dataset
+
+def get_data_hetero_vector():
+    dl = ServerDataloaderHeteroVector("../../GNN_V#/SerializedEpisodes_productivity_simple")
+    #dl = ServerDataloaderHetero("../../GNN_V#/Serialized_test")
+    return dl.dataset
+
+if __name__ == '__main__':
+    get_data_hetero_vector()
