@@ -1,7 +1,8 @@
 import torch
 from torch import nn
 
-from torch_geometric.nn import GATConv, Linear, to_hetero, TransformerConv, ARMAConv, FeaStConv, ResGatedGraphConv, TAGConv
+from torch_geometric.nn import GATConv, Linear, to_hetero, TransformerConv, ARMAConv, FeaStConv, ResGatedGraphConv, \
+    TAGConv
 
 from data_loader import NUM_NODE_FEATURES
 from torch.nn import Linear
@@ -10,6 +11,7 @@ from torch_geometric.nn import GCNConv, SAGEConv, HeteroConv
 from torch_geometric.nn import global_mean_pool
 
 NUM_PREDICTED_VALUES = 4
+
 
 class ARMANet(torch.nn.Module):
     def __init__(self,
@@ -61,11 +63,10 @@ class GATNet(torch.nn.Module):
         self.conv2.reset_parameters()
 
     def forward(self, x, edge_index):
-
         # x = F.relu(self.fc0(x))
         x = F.relu(self.conv1(x, edge_index))
         x = F.relu(self.conv2(x, edge_index))
-        #x = global_mean_pool(x, data.batch)
+        # x = global_mean_pool(x, data.batch)
         x = F.dropout(x, training=self.training)
         x = self.fc1(x)
         return x
@@ -149,6 +150,7 @@ class UniMP(torch.nn.Module):
         x = self.fc1(x)
         return x
 
+
 class HeteroGNN(torch.nn.Module):
     def __init__(self, metadata, hidden_channels, out_channels, num_layers):
         super().__init__()
@@ -169,6 +171,7 @@ class HeteroGNN(torch.nn.Module):
             x_dict = {key: F.leaky_relu(x) for key, x in x_dict.items()}
         return self.lin(x_dict['author'])
 
+
 class GCN_SimpleNoEdgeLabels(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -184,6 +187,7 @@ class GCN_SimpleNoEdgeLabels(torch.nn.Module):
         x = self.conv2(x, edge_index)
 
         return F.log_softmax(x, dim=1)
+
 
 class GNN_MultipleOutput(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
@@ -207,9 +211,8 @@ class GNN_MultipleOutput(torch.nn.Module):
 
 
 class GCN_SimpleMultipleOutput(torch.nn.Module):
-    #https://discuss.pytorch.org/t/a-model-with-multiple-outputs/10440
+    # https://discuss.pytorch.org/t/a-model-with-multiple-outputs/10440
     def __init__(self, hidden_channels):
-
         super(GCN_SimpleMultipleOutput, self).__init__()
         torch.manual_seed(12345)
         self.conv1 = GCNConv(NUM_NODE_FEATURES, hidden_channels)
@@ -218,7 +221,6 @@ class GCN_SimpleMultipleOutput(torch.nn.Module):
         self.conv2.add_self_loops = False
 
     def forward(self, x, edge_index):
-
         x1 = self.conv1(x, edge_index)
         x1 = F.relu(x1)
         x1 = F.dropout(x1, training=self.training)
@@ -240,7 +242,7 @@ class GCN_SimpleMultipleOutput(torch.nn.Module):
         x4 = self.conv2(x4, edge_index)
 
         return F.log_softmax(x1, dim=1), F.log_softmax(x2, dim=1), \
-               F.log_softmax(x3, dim=1), F.log_softmax(x4, dim=1)
+            F.log_softmax(x3, dim=1), F.log_softmax(x4, dim=1)
 
 
 class GNN_Het(torch.nn.Module):
@@ -254,6 +256,7 @@ class GNN_Het(torch.nn.Module):
         x = self.conv2(x, edge_index)
         return x
 
+
 class ARMA_Het(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
         super().__init__()
@@ -264,6 +267,7 @@ class ARMA_Het(torch.nn.Module):
         x = self.conv1(x, edge_index).relu()
         x = self.conv2(x, edge_index)
         return x
+
 
 class GNN_Het_EA(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
@@ -300,6 +304,7 @@ class GCN(torch.nn.Module):
 
         return x
 
+
 class GAT(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
         super().__init__()
@@ -327,6 +332,7 @@ class VertexGNNEncoder(torch.nn.Module):
         x = self.conv1(x, edge_index).relu()
         x = self.conv2(x, edge_index).relu()
         return self.lin(x)
+
 
 class StateGNNEncoder(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
@@ -360,18 +366,19 @@ class StateGNNEncoder(torch.nn.Module):
 
         return self.lin(state_x)
 
+
 class StateGNNEncoderConv(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
         super().__init__()
-        #self.conv1 = GCNConv(5, hidden_channels)
-        #self.conv2 = GCNConv(6, hidden_channels)
-        #GravNetConv
-        #self.conv1 = GravNetConv(-1, hidden_channels, 2, 2, 2)
-        #self.conv2 = GravNetConv(-1, hidden_channels, 2, 2, 2)
-        #GatedGraphConv
+        # self.conv1 = GCNConv(5, hidden_channels)
+        # self.conv2 = GCNConv(6, hidden_channels)
+        # GravNetConv
+        # self.conv1 = GravNetConv(-1, hidden_channels, 2, 2, 2)
+        # self.conv2 = GravNetConv(-1, hidden_channels, 2, 2, 2)
+        # GatedGraphConv
         self.conv1 = TAGConv(5, hidden_channels)
         self.conv2 = TAGConv(6, hidden_channels)
-        self.conv3 = SAGEConv((-1, -1), hidden_channels) #SAGEConv
+        self.conv3 = SAGEConv((-1, -1), hidden_channels)  # SAGEConv
         self.conv4 = SAGEConv((-1, -1), hidden_channels)
         self.lin = Linear(hidden_channels, out_channels)
 
@@ -398,6 +405,7 @@ class StateGNNEncoderConv(torch.nn.Module):
 
         return self.lin(state_x)
 
+
 class VerStateModel(torch.nn.Module):
     def __init__(self, metadata, hidden_channels, out_channels):
         super().__init__()
@@ -408,36 +416,37 @@ class VerStateModel(torch.nn.Module):
 
     def forward(self, x_dict, edge_index_dict):
         z_dict = {}
-        #x_dict['game_vertex'] = self.user_emb(x_dict['game_vertex'])
+        # x_dict['game_vertex'] = self.user_emb(x_dict['game_vertex'])
         z_dict['state_vertex'] = self.state_encoder(x_dict, edge_index_dict)
         z_dict['game_vertex'] = x_dict['game_vertex']
-        #print(edge_index_dict)
-        #z_dict['state_vertex'] = self.state_encoder(
+        # print(edge_index_dict)
+        # z_dict['state_vertex'] = self.state_encoder(
         #    x_dict['state_vertex'],
         #    edge_index_dict[('state_vertex', 'parent_of', 'state_vertex')],
-        #)
+        # )
 
-        #return self.decoder(z_dict, edge_index_dict) # TODO: process separately
+        # return self.decoder(z_dict, edge_index_dict) # TODO: process separately
         return z_dict
 
+
 class StateModelEncoder(torch.nn.Module):
-    def __init__(self, metadata, hidden_channels, out_channels):
+    def __init__(self, hidden_channels, out_channels):
         super().__init__()
-        self.vertex_encoder = VertexGNNEncoder(hidden_channels, out_channels)
+        #self.vertex_encoder = VertexGNNEncoder(hidden_channels, out_channels)
         self.state_encoder = StateGNNEncoderConv(hidden_channels, out_channels)
-        self.decoder = GNN_Het(hidden_channels, out_channels)
-        #self.decoder = to_hetero(self.decoder, metadata, aggr='sum')
+        #self.decoder = GNN_Het(hidden_channels, out_channels)
+        # self.decoder = to_hetero(self.decoder, metadata, aggr='sum')
 
     def forward(self, x_dict, edge_index_dict):
         z_dict = {}
-        #x_dict['game_vertex'] = self.user_emb(x_dict['game_vertex'])
+        # x_dict['game_vertex'] = self.user_emb(x_dict['game_vertex'])
         z_dict['state_vertex'] = self.state_encoder(x_dict, edge_index_dict)
         z_dict['game_vertex'] = x_dict['game_vertex']
-        #print(edge_index_dict)
-        #z_dict['state_vertex'] = self.state_encoder(
+        # print(edge_index_dict)
+        # z_dict['state_vertex'] = self.state_encoder(
         #    x_dict['state_vertex'],
         #    edge_index_dict[('state_vertex', 'parent_of', 'state_vertex')],
-        #)
+        # )
 
-        #return self.decoder(z_dict, edge_index_dict) # TODO: process separately
+        # return self.decoder(z_dict, edge_index_dict) # TODO: process separately
         return z_dict
