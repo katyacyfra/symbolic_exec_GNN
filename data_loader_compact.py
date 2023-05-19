@@ -6,7 +6,7 @@ from os import walk
 from typing import Dict, Tuple
 import torch
 import numpy as np
-from operator import itemgetter
+import pickle
 
 from game_compact import GameState
 
@@ -67,6 +67,8 @@ class ServerDataloaderHeteroVector():
                                              vertex_map[e.VertexTo]]))
             edges_attr_v_v.append(np.array([e.Label.Token])) #TODO: consider token in a model
 
+        state_doubles = 0
+
         # state nodes
         for s in game_states:
             state_id = s.Id
@@ -84,6 +86,8 @@ class ServerDataloaderHeteroVector():
                    edges_index_s_v_history.append(np.array([state_index, v_to]))
                    edges_index_v_s_history.append(np.array([v_to, state_index]))
                 state_index = state_index + 1
+            else:
+                state_doubles += 1
 
         # state and its childen edges: state -> state
         for s in game_states:
@@ -109,13 +113,14 @@ class ServerDataloaderHeteroVector():
                                                                                  dtype=torch.long).t().contiguous()
         data['game_vertex', 'history', 'state_vertex'].edge_index = torch.tensor(np.array(edges_index_v_s_history),
                                                                                  dtype=torch.long).t().contiguous()
-        if (edges_index_s_s):
-            data['state_vertex', 'parent_of', 'state_vertex'].edge_index = torch.tensor(np.array(edges_index_s_s),
+        #if (edges_index_s_s): #TODO: empty?
+        data['state_vertex', 'parent_of', 'state_vertex'].edge_index = torch.tensor(np.array(edges_index_s_s),
                                                                                         dtype=torch.long).t().contiguous()
             # print(data['state', 'parent_of', 'state'].edge_index)
         #data['game_vertex', 'to', 'game_vertex'].edge_attr = torch.tensor(np.array(edges_attr_v_v), dtype=torch.long)
         # data['state_vertex', 'to', 'game_vertex'].edge_attr = torch.tensor(np.array(edges_attr_s_v), dtype=torch.long)
         # data.state_map = state_map
+        #print("Doubles", state_doubles, len(state_map))
         return data, state_map
 
     @staticmethod
@@ -129,12 +134,21 @@ class ServerDataloaderHeteroVector():
                 sid = d['StateId']
                 if sid not in state_set:
                    state_set.add(sid)
-                   values = list(d.values())
-                   expected[values[0]] = np.array(values[1:])
+                   values = [d["NextInstructionIsUncoveredInZone"],
+                             d["ChildNumberNormalized"],
+                             d["VisitedVerticesInZoneNormalized"],
+                             d["Productivity"],
+                             d["DistanceToReturnNormalized"],
+                             d["DistanceToUncoveredNormalized"],
+                             d["DistanceToNotVisitedNormalized"],
+                             d["ExpectedWeight"]
+                             ]
+                   expected[sid] = np.array(values)
         ordered = []
         ordered_by_index = list(zip(*sorted(state_map.items(), key=lambda x: x[1])))[0]
         for k in ordered_by_index:
             ordered.append(expected[k])
+        #print(ordered, state_map)
         return torch.tensor(np.array(ordered), dtype=torch.float)
 
     def process_directory(self, data_dir):
@@ -165,6 +179,10 @@ class ServerDataloaderHeteroVector():
                         #print(len(graph['state_vertex'].x), len(state_map), len(expected))
                         graph.y = expected
                         self.dataset.append(graph)
+            PIK = "./dataset_t/" + k + ".dat"
+            with open(PIK, "wb") as f:
+                pickle.dump(self.dataset, f)
+            self.dataset = []
 
 
 def parse_cmd_line_args():
@@ -174,7 +192,7 @@ def parse_cmd_line_args():
 
 
 def get_data_hetero_vector():
-    dl = ServerDataloaderHeteroVector("../../GNN_V#/Serialized_almost_all")
+    dl = ServerDataloaderHeteroVector("../../GNN_V#/all")
     # dl = ServerDataloaderHetero("../../GNN_V#/Serialized_test")
     return dl.dataset
 
