@@ -30,8 +30,8 @@ class PredictStateVectorHetGNN:
         print(device)
         # dataset = data_loader_compact.get_data_hetero_vector()
         dataset = []
-        dataset_dir = "./dataset_t/"
-        #dataset_dir = "./dataset_t_s/"
+        #dataset_dir = "./dataset_t/"
+        dataset_dir = "./dataset_t_s/"
         for file in os.listdir(dataset_dir):
             print(file)
             with open(os.path.join(dataset_dir, file), "rb") as f:
@@ -56,7 +56,7 @@ class PredictStateVectorHetGNN:
         train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)  # TODO: add learning by batches!
         test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
 
-        model = StateModelEncoder(dataset[0].metadata(), hidden_channels=64, out_channels=8)
+        model = StateModelEncoder(hidden_channels=64, out_channels=8)
         # model = GNN_Het(hidden_channels=64, out_channels=1).to(device)
         #model = ARMA_Het(hidden_channels=64, out_channels=1)
         '''model = ARMANet(
@@ -81,7 +81,7 @@ class PredictStateVectorHetGNN:
             # print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
             print(f'Epoch: {epoch:03d}, Train Loss: {train_acc:.6f}, Test Loss: {test_acc:.6f}')
 
-        self.save(model, "./saved_models")
+        self.save_simple(model, "./saved_models")
 
     # loss function from link prediction example
     def weighted_mse_loss(self, pred, target, weight=None):
@@ -122,13 +122,23 @@ class PredictStateVectorHetGNN:
         out = model(data.x_dict, data.edge_index_dict)
         return state_map[int(out['state_vertex'].argmax(dim=0)[0])]
 
-    def save(self, model, dir):
+    def save_simple(self, model, dir):
         filepath = os.path.join(dir, "GNN_state_pred_het_dict")
         # case 1
         torch.save(model.state_dict(), filepath)
         # case 2
         filepath = os.path.join(dir, "GNN_state_pred_het_full")
         torch.save(model, filepath)
+
+    def save_torch_script(self, model, dir):
+        #filepath = os.path.join(dir, "GNN_state_pred_het_dict_torch_script")
+        # case 1
+        model_scripted = torch.jit.script(model)
+        #torch.save(model.state_dict(), filepath)
+        # case 2
+        filepath = os.path.join(dir, "GNN_vector_het_torch_script.pt")
+        model_scripted.save(model, filepath)
+
 
 
 if __name__ == '__main__':
