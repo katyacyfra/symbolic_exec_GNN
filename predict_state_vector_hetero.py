@@ -1,6 +1,6 @@
 import os.path
 import pickle
-import time
+
 from typing import Dict
 
 import torch
@@ -10,7 +10,7 @@ from torch_geometric.data import HeteroData
 
 import data_loader_compact
 from models import GCN, GCN_SimpleMultipleOutput, GNN_MultipleOutput, GAT, GNN_Het, GNN_Het_EA, VerStateModel, ARMANet, \
-    GATNet, ARMA_Het, StateModelEncoder
+    GATNet, ARMA_Het, StateModelEncoder, StateModelEncoderTAG100hops
 from random import shuffle
 from torch_geometric.loader import DataLoader
 import torch.nn.functional as F
@@ -26,12 +26,12 @@ class PredictStateVectorHetGNN:
         self.start()
 
     def start(self):
-        device = torch.device('cpu')#torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print(device)
         # dataset = data_loader_compact.get_data_hetero_vector()
         dataset = []
-        dataset_dir = "./dataset_t/"
-        #dataset_dir = "./dataset_t_dist/"
+        dataset_dir = "./dataset_t_new/"
+        #dataset_dir = "./dataset_t_s/"
         for file in os.listdir(dataset_dir):
             print(file)
             with open(os.path.join(dataset_dir, file), "rb") as f:
@@ -40,8 +40,6 @@ class PredictStateVectorHetGNN:
                     dat = dat[:5000]
                     print("Part of the dataset is chosen!")
                 dataset.extend(dat)
-                #for d in dat:
-                    #dataset.append(d.to(device))
 
         torch.manual_seed(12345)
         # print(dataset[3].y[:, 3])
@@ -74,16 +72,12 @@ class PredictStateVectorHetGNN:
         #model = to_hetero(model, dataset[0].metadata(), aggr='sum').to(device)
         # model = to_hetero_with_bases(model, dataset[0].metadata(), num_bases=3)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-        # criterion = torch.nn.CrossEntropyLoss()
+        criterion = torch.nn.CrossEntropyLoss()
 
-        for epoch in range(1, 21):
-            #start_time = time.time()
-            self.train(model, train_loader, optimizer)
-            #print("--- Train time: %s minutes ---" % ((time.time() - start_time)/60))
+        for epoch in range(1, 51):
+            self.train(model, train_loader, optimizer, device)
             train_acc = self.tst(model, train_loader)
-            #start_time = time.time()
             test_acc = self.tst(model, test_loader)
-            #print("--- Test time: %s minutes ---" % ((time.time() - start_time)/60))
             # print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
             print(f'Epoch: {epoch:03d}, Train Loss: {train_acc:.6f}, Test Loss: {test_acc:.6f}')
 
@@ -94,20 +88,20 @@ class PredictStateVectorHetGNN:
         weight = 1. if weight is None else weight[target].to(pred.dtype)
         return (weight * (pred - target.to(pred.dtype)).pow(2)).mean()
 
-    def train(self, model, train_loader, optimizer):
+    def train(self, model, train_loader, optimizer, device):
         model.train()
 
-        start_time = time.time()
         for data in train_loader:  # Iterate in batches over the training dataset.
-            # print(data)
-            out = model(data.x_dict, data.edge_index_dict)
+            data = data.to(device)
+            optimizer.zero_grad()  # Clear gradients.
+            out = model(data.x_dict, data.edge_index_dict, data.edge_attr_dict)
             pred = out['state_vertex']
             target = data.y
             #target = torch.reshape(data.y[:, 4], pred.shape)
             loss = F.mse_loss(pred, target)
             loss.backward()  # Derive gradients.
             optimizer.step()  # Update parameters based on gradients.
-            optimizer.zero_grad()  # Clear gradients.
+
 
     @torch.no_grad()
     def tst(self, model, loader):
@@ -115,7 +109,7 @@ class PredictStateVectorHetGNN:
         total_loss = 0
         number_of_states_total = 0
         for data in loader:
-            out = model(data.x_dict, data.edge_index_dict)
+            out = model(data.x_dict, data.edge_index_dict, data.edge_attr_dict)
             pred = out['state_vertex']
             target = data.y
             for i, x in enumerate(pred):
@@ -123,11 +117,11 @@ class PredictStateVectorHetGNN:
                 total_loss += loss
                 number_of_states_total += 1
 
-            # target = torch.reshape(data.y[:, 4], pred.shape)
+            #target = torch.reshape(data.y[:, 4], pred.shape)
 
             # print(pred, target)
             # correct += int(pred == target)
-        return total_loss / number_of_states_total  # correct / len(loader.dataset)
+        return total_loss/number_of_states_total  # correct / len(loader.dataset)
 
     @staticmethod
     def predict_state(model, data: HeteroData, state_map: Dict[int, int]) -> int:
