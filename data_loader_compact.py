@@ -46,6 +46,9 @@ class ServerDataloaderHeteroVector():
         edges_index_v_s_history = []
         edges_attr_v_v = []
 
+        edges_attr_s_v = []
+        edges_attr_v_s = []
+
         state_map: Dict[int, int] = {}  # Maps real state id to its index
         vertex_map: Dict[int, int] = {}  # Maps real vertex id to its index
         vertex_index = 0
@@ -85,6 +88,8 @@ class ServerDataloaderHeteroVector():
                    v_to = vertex_map[h.GraphVertexId]
                    edges_index_s_v_history.append(np.array([state_index, v_to]))
                    edges_index_v_s_history.append(np.array([v_to, state_index]))
+                   edges_attr_s_v.append(np.array([h.NumOfVisits]))
+                   edges_attr_v_s.append(np.array([h.NumOfVisits]))
                 state_index = state_index + 1
             else:
                 state_doubles += 1
@@ -113,6 +118,8 @@ class ServerDataloaderHeteroVector():
                                                                                  dtype=torch.long).t().contiguous()
         data['game_vertex', 'history', 'state_vertex'].edge_index = torch.tensor(np.array(edges_index_v_s_history),
                                                                                  dtype=torch.long).t().contiguous()
+        data['state_vertex', 'history', 'game_vertex'].edge_attr = torch.tensor(np.array(edges_attr_s_v), dtype=torch.long)
+        data['game_vertex', 'history', 'state_vertex'].edge_attr = torch.tensor(np.array(edges_attr_v_s), dtype=torch.long)
         #if (edges_index_s_s): #TODO: empty?
         data['state_vertex', 'parent_of', 'state_vertex'].edge_index = torch.tensor(np.array(edges_index_s_s),
                                                                                         dtype=torch.long).t().contiguous()
@@ -179,7 +186,7 @@ class ServerDataloaderHeteroVector():
                         #print(len(graph['state_vertex'].x), len(state_map), len(expected))
                         graph.y = expected
                         self.dataset.append(graph)
-            PIK = "./dataset_t/" + k + ".dat"
+            PIK = "./dataset_t_new/" + k + ".dat"
             with open(PIK, "wb") as f:
                 pickle.dump(self.dataset, f)
             self.dataset = []
@@ -192,7 +199,7 @@ def parse_cmd_line_args():
 
 
 def get_data_hetero_vector():
-    dl = ServerDataloaderHeteroVector("../../GNN_V#/all")
+    dl = ServerDataloaderHeteroVector("/home/cyfra/PycharmProjects/symbolic_exec_GNN-main/dataset_no_conv")
     # dl = ServerDataloaderHetero("../../GNN_V#/Serialized_test")
     return dl.dataset
 
