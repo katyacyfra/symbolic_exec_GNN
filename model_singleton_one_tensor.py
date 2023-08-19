@@ -72,7 +72,6 @@ class StateModelEncoder(torch.nn.Module):
         final_tensor[row_start : row_start + 2, : vertex_to_vertex_n] = edge_index_dict['game_vertex to game_vertex']
         row_start += 2
 
-        state_to_state = edge_index_dict['state_vertex parent_of state_vertex']
         self.sizes_dict['state_vertex parent_of state_vertex'] = (row_start, state_to_state_n)
         final_tensor[row_start : row_start + 2, : state_to_state_n] = edge_index_dict['state_vertex parent_of state_vertex']
         return final_tensor
@@ -119,12 +118,12 @@ class StateModelEncoder(torch.nn.Module):
         ).relu()
 
         state_edges_n = self.sizes_dict['state_vertex parent_of state_vertex'][1]
-        if state_edges_n != 0:
-            start = self.sizes_dict['state_vertex parent_of state_vertex'][0]
-            parent_index = x[start : start + 2,
+        #if state_edges_n != 0: is it needed here?
+        start = self.sizes_dict['state_vertex parent_of state_vertex'][0]
+        parent_index = x[start : start + 2,
                  :state_edges_n].to(torch.int64)
 
-            state_x = self.conv2(
+        state_x = self.conv2(
                state_x,
                parent_index,
             ).relu()
