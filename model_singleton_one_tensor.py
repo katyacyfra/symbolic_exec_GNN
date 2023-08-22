@@ -74,10 +74,13 @@ class StateModelEncoder(torch.nn.Module):
 
         self.sizes_dict['state_vertex parent_of state_vertex'] = (row_start, state_to_state_n)
         final_tensor[row_start : row_start + 2, : state_to_state_n] = edge_index_dict['state_vertex parent_of state_vertex']
+        final_tensor.transpose(0, 1)
+
         return final_tensor
 
 
     def forward(self, x):
+        x.transpose(0, 1)
         game_x = x[self.sizes_dict['game_vertex'][0]:self.sizes_dict['game_vertex'][1],
                  :self.vertices_n].transpose(0,1)
         start = self.sizes_dict['game_vertex to game_vertex'][0]
