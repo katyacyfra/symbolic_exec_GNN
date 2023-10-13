@@ -1,4 +1,21 @@
-## Pretrained Models Summary
+
+
+## Pretrained Models Summary Balanced Dataset
+
+| Name | Train Loss | Test Loss |#parameters|#epochs|#hidden|lr|Comments|
+|--|--|--|--|--|--|--|--|
+|[EdgeTypeRGCNSageSubgraphs64ch](./models/EdgeTypeRGCNSageSubgraphs64ch/)  |0.009276  |0.009997 |22,920|20|64|0.0001||
+|[EdgeTypeRGCNSageSubgraphs64ch](./models/EdgeTypeRGCNSageSubgraphs64ch/)   |0.006144  |0.006247 |22,920|50|64|0.0001||
+|[EdgeTypeRGCNSageSubgraphs64ch](./models/EdgeTypeRGCNSageSubgraphs64ch/)  |0.004633  |0.004714 |22,920|100|64|0.0001||
+
+
+## Inference
+```python
+model = StateModelEncoder(hidden_channels=#hidden, out_channels=8)
+```
+
+
+## Pretrained Models Summary Old
 
 | Name | Train Loss | Test Loss |#parameters|#epochs|#hidden|lr|Comments|
 |--|--|--|--|--|--|--|--|
@@ -12,3 +29,4 @@
 ```python
 model = StateModelEncoder(hidden_channels=#hidden, out_channels=8)
 ```
+
